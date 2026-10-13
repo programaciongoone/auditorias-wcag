@@ -105,10 +105,15 @@ export async function handleOAuth(req, res, pathname, searchParams) {
     const redirect = searchParams.get('redirect_uri');
     const challenge = searchParams.get('code_challenge');
     const state = searchParams.get('state');
-    if (!client || !client.redirect_uris.includes(redirect) || searchParams.get('response_type') !== 'code' ||
-        searchParams.get('code_challenge_method') !== 'S256' || !challenge || !/^[A-Za-z0-9_-]{43,128}$/.test(challenge) ||
-        !state || state.length > 2048) {
-      error(res, 400, 'invalid_request', 'Parámetros OAuth inválidos'); return true;
+    const reason = !client ? 'client_id_no_registrado' :
+      !client.redirect_uris.includes(redirect) ? 'redirect_uri_no_registrada' :
+      searchParams.get('response_type') !== 'code' ? 'response_type_no_admitido' :
+      searchParams.get('code_challenge_method') !== 'S256' ? 'pkce_method_invalido' :
+      !challenge || !/^[A-Za-z0-9_-]{43,128}$/.test(challenge) ? 'pkce_challenge_invalido' :
+      !state || state.length > 2048 ? 'state_invalido' : null;
+    if (reason) {
+      console.warn('OAuth authorize rejected:', reason);
+      error(res, 400, 'invalid_request', 'Validación OAuth fallida: ' + reason); return true;
     }
     if (!process.env.GITHUB_OAUTH_CLIENT_ID || !process.env.GITHUB_OAUTH_CLIENT_SECRET) {
       error(res, 503, 'temporarily_unavailable', 'Credenciales GitHub OAuth no configuradas'); return true;
