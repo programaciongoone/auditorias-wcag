@@ -47,7 +47,7 @@ function imageSignature(id, expires) {
 }
 function imageUrl(id) {
   if (!IMAGE_SECRET) return null;
-  const expires = Math.floor(Date.now() / 1000) + 3600;
+  const expires = Math.floor(Date.now() / 1000) + 7 * 24 * 3600;
   return 'https://auditorias-wcag-mcp.onrender.com/capturas/' + id + '.png?expires=' + expires + '&sig=' + imageSignature(id, expires);
 }
 const result = value => ({ content: [{ type: 'text', text: JSON.stringify(value) }] });
@@ -114,12 +114,12 @@ http.createServer(async (req, res) => {
     const sig = requestUrl.searchParams.get('sig') || '';
     const expected = Number.isSafeInteger(id) && Number.isSafeInteger(expires) && IMAGE_SECRET ? imageSignature(id, expires) : '';
     const a = Buffer.from(sig), b = Buffer.from(expected);
-    if (!expected || expires < Math.floor(Date.now() / 1000) || expires > Math.floor(Date.now() / 1000) + 3600 || a.length !== b.length || !timingSafeEqual(a, b)) {
+    if (!expected || expires < Math.floor(Date.now() / 1000) || expires > Math.floor(Date.now() / 1000) + 7 * 24 * 3600 || a.length !== b.length || !timingSafeEqual(a, b)) {
       res.writeHead(403); return res.end();
     }
     try {
       const png = await getScreenshot(id);
-      res.writeHead(200, { 'Content-Type': 'image/png', 'Content-Length': png.length, 'Cache-Control': 'private, max-age=300', 'X-Content-Type-Options': 'nosniff' });
+      res.writeHead(200, { 'Content-Type': 'image/png', 'Content-Length': png.length, 'Cache-Control': 'public, max-age=300', 'X-Content-Type-Options': 'nosniff' });
       return res.end(png);
     } catch (e) { res.writeHead(404); return res.end(); }
   }
