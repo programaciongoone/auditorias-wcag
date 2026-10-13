@@ -128,8 +128,11 @@ export async function visualByRunId(runId) {
   const entry = Object.entries(files).find(([name]) => name === 'errores-visuales.json' || name.endsWith('/errores-visuales.json'));
   if (!entry) return { run_id: runId, status: 'captura_no_disponible', message: 'Esta ejecución es anterior a la función visual.' };
   const visual = JSON.parse(strFromU8(entry[1]));
+  const png = Object.entries(files).find(([name]) => name === 'captura-errores.png' || name.endsWith('/captura-errores.png'));
   return { run_id: runId, status: 'available', image: visual.image,
     marked: visual.marked, not_visible: visual.notVisible, error: visual.error,
+    image_base64: png && png[1].byteLength <= 9_000_000 ? Buffer.from(png[1]).toString('base64') : null,
+    image_omitted_reason: !png ? 'png_no_encontrado' : png[1].byteLength > 9_000_000 ? 'png_demasiado_grande' : null,
     artifact_id: artifact.id, download_url: 'https://github.com/programaciongoone/auditorias-wcag/actions/runs/' + runId + '/artifacts/' + artifact.id,
     message: 'Descarga el artifact desde GitHub: incluye captura-errores.png y errores-visuales.json.' };
 }
