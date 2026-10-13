@@ -1,5 +1,6 @@
 import http from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
+import { bearerAuthorized, handleOAuth } from './oauth.js';
 
 const { GITHUB_TOKEN, MCP_API_KEY, PORT = '10000' } = process.env;
 const OWNER = 'programaciongoone';
@@ -78,9 +79,11 @@ async function handle(message) {
   return rpcError(id, -32601, 'Método no disponible');
 }
 http.createServer(async (req, res) => {
+  const requestUrl = new URL(req.url, 'http://localhost');
+  if (await handleOAuth(req, res, requestUrl.pathname, requestUrl.searchParams)) return;
   if (req.url === '/health' && req.method === 'GET') { res.writeHead(200, { 'Content-Type': 'application/json' }); return res.end('{"ok":true}'); }
   if (req.url !== '/mcp') { res.writeHead(404); return res.end(); }
-  if (!isAuthorized(req)) { res.writeHead(401, { 'WWW-Authenticate': 'Bearer' }); return res.end(); }
+  if (!isAuthorized(req) && !bearerAuthorized(req)) { res.writeHead(401, { 'WWW-Authenticate': 'Bearer resource_metadata="https://auditorias-wcag-mcp.onrender.com/.well-known/oauth-protected-resource"' }); return res.end(); }
   if (req.method !== 'POST') { res.writeHead(405, { Allow: 'POST' }); return res.end(); }
   if (!req.headers.accept?.includes('application/json') || !req.headers.accept?.includes('text/event-stream')) { res.writeHead(406); return res.end(); }
   let body = '';
