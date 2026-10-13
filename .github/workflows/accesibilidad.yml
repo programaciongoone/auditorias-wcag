@@ -51,11 +51,11 @@ jobs:
           TARGET_URL: ${{ inputs.url }}
         run: node scripts/auditar.cjs
 
-      - name: Guardar informes durante un día
+      - name: Guardar informes durante siete días
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: auditoria-wcag-${{ github.run_number }}
           path: resultados/
-          retention-days: 1
+          retention-days: 7
           if-no-files-found: warn
