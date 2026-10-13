@@ -58,6 +58,66 @@ async function main() {
       }
     }
 
+    // Visualización basada en los selectores reales de Pa11y; sin posiciones inventadas.
+    const unique = new Map();
+    for (const [engine, report] of Object.entries(reports)) {
+      for (const issue of report.issues || []) {
+        if (!issue.selector || typeof issue.selector !== 'string') continue;
+        const key = engine + ':' + issue.selector + ':' + issue.code;
+        if (!unique.has(key)) unique.set(key, { engine, selector: issue.selector, code: issue.code, message: issue.message });
+      }
+    }
+    const visual = { url: metadata.finalUrl, generatedAt: new Date().toISOString(), marked: [], notVisible: [] };
+    // El DOM puede cambiar entre el análisis Pa11y y la captura: se documenta la correspondencia.
+    try {
+      const entries = [...unique.values()].slice(0, 80);
+      for (const item of entries) {
+        try {
+          const matches = await page.$(item.selector);
+          if (!matches.length) { visual.notVisible.push({ ...item, reason: 'selector_no_encontrado' }); continue; }
+          let marked = 0;
+          for (const handle of matches.slice(0, 20)) {
+            const visible = await handle.evaluate(el => {
+              const r = el.getBoundingClientRect(), s = getComputedStyle(el);
+              return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none';
+            });
+            if (!visible) continue;
+            const label = visual.marked.length + 1;
+            await handle.evaluate((el, num) => {
+              const r = el.getBoundingClientRect();
+              const overlay = document.createElement('div');
+              overlay.setAttribute('data-wcag-marker', String(num));
+              Object.assign(overlay.style, {
+                position: 'absolute', left: (r.left + scrollX) + 'px', top: (r.top + scrollY) + 'px',
+                width: Math.max(2, r.width) + 'px', height: Math.max(2, r.height) + 'px',
+                border: '4px solid #e11d48', background: 'rgba(225,29,72,.12)',
+                boxSizing: 'border-box', zIndex: '2147483646', pointerEvents: 'none'
+              });
+              const badge = document.createElement('span');
+              badge.textContent = String(num);
+              Object.assign(badge.style, {
+                position: 'absolute', top: '-15px', left: '-12px', background: '#e11d48',
+                color: '#fff', font: 'bold 16px Arial', padding: '5px 9px',
+                borderRadius: '16px', minWidth: '22px', textAlign: 'center'
+              });
+              overlay.appendChild(badge);
+              document.body.appendChild(overlay);
+            }, label);
+            visual.marked.push({ number: label, ...item });
+            marked++;
+          }
+          if (!marked) visual.notVisible.push({ ...item, reason: 'elemento_oculto_o_sin_dimensiones' });
+          if (matches.length > 20) visual.notVisible.push({ ...item, reason: 'mas_de_20_coincidencias' });
+        } catch (e) { visual.notVisible.push({ ...item, reason: 'selector_no_resuelto', detail: String(e.message).slice(0, 160) }); }
+      }
+      await page.screenshot({ path: path.join(out, 'captura-errores.png'), fullPage: true, captureBeyondViewport: true });
+      visual.image = 'captura-errores.png';
+    } catch (e) {
+      visual.error = String(e.message).slice(0, 300);
+    }
+    fs.writeFileSync(path.join(out, 'errores-visuales.json'), JSON.stringify(visual, null, 2));
+    console.log('Captura visual:', visual.marked.length, 'marcadores;', visual.notVisible.length, 'sin localización visible');
+
     const rows = Object.entries(reports).flatMap(([engine, report]) =>
       (report.issues || []).map(issue => '<tr><td>' + escapeHtml(engine) +
         '</td><td>' + escapeHtml(issue.type) + '</td><td>' +
