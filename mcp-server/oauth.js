@@ -1,12 +1,36 @@
-import { randomBytes, createHash, timingSafeEqual } from 'node:crypto';
+import { randomBytes, createHash, createHmac, timingSafeEqual } from 'node:crypto';
 
 const BASE = 'https://auditorias-wcag-mcp.onrender.com';
 const GITHUB_USER = 'programaciongoone';
-const clients = new Map();
 const pending = new Map();
 const codes = new Map();
-const tokens = new Map();
 const rand = () => randomBytes(32).toString('base64url');
+const secret = () => {
+  const key = process.env.MCP_API_KEY;
+  if (!key || key.length < 32) throw Error('MCP_API_KEY debe tener al menos 32 caracteres');
+  return key;
+};
+const sign = data => {
+  const payload = Buffer.from(JSON.stringify(data)).toString('base64url');
+  const signature = createHmac('sha256', secret()).update(payload).digest('base64url');
+  return payload + '.' + signature;
+};
+const verify = token => {
+  if (typeof token !== 'string' || token.length > 8192) return null;
+  const pieces = token.split('.');
+  if (pieces.length !== 2) return null;
+  const [payload, signature] = pieces;
+  const expected = createHmac('sha256', secret()).update(payload).digest('base64url');
+  if (!equal(signature, expected)) return null;
+  try {
+    const data = JSON.parse(Buffer.from(payload, 'base64url').toString());
+    return data.exp > Date.now() ? data : null;
+  } catch { return null; }
+};
+const readClient = id => {
+  const client = verify(id);
+  return client?.kind === 'oauth-client' && Array.isArray(client.redirect_uris) ? client : null;
+};
 const json = (res, status, value, headers = {}) => {
   res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...headers });
   res.end(JSON.stringify(value));
@@ -33,7 +57,7 @@ const equal = (a, b) => {
 const error = (res, status, code, description) => json(res, status, { error: code, error_description: description });
 const expire = () => {
   const now = Date.now();
-  for (const map of [pending, codes, tokens]) for (const [key, value] of map) if (value.expires < now) map.delete(key);
+  for (const map of [pending, codes]) for (const [key, value] of map) if (value.expires < now) map.delete(key);
 };
 function authMetadata() {
   return {
@@ -51,8 +75,8 @@ export function bearerAuthorized(req) {
   expire();
   const token = req.headers.authorization?.match(/^Bearer (.+)$/i)?.[1];
   if (!token) return false;
-  const value = tokens.get(token);
-  return Boolean(value && value.expires > Date.now() && value.user === GITHUB_USER);
+  const value = verify(token);
+  return Boolean(value && value.kind === 'mcp-access' && value.user === GITHUB_USER);
 }
 export async function handleOAuth(req, res, pathname, searchParams) {
   expire();
@@ -69,8 +93,7 @@ export async function handleOAuth(req, res, pathname, searchParams) {
           !input.redirect_uris.every(safeRedirect) || (input.token_endpoint_auth_method && input.token_endpoint_auth_method !== 'none')) {
         error(res, 400, 'invalid_client_metadata', 'Redirect URIs o método de autenticación inválidos'); return true;
       }
-      const id = rand();
-      clients.set(id, { redirect_uris: input.redirect_uris });
+      const id = sign({ kind: 'oauth-client', redirect_uris: input.redirect_uris, exp: Date.now() + 365 * 86400000 });
       json(res, 201, { client_id: id, client_id_issued_at: Math.floor(Date.now()/1000),
         redirect_uris: input.redirect_uris, token_endpoint_auth_method: 'none',
         grant_types: ['authorization_code'], response_types: ['code'], client_name: input.client_name || 'ChatGPT MCP' });
@@ -78,7 +101,7 @@ export async function handleOAuth(req, res, pathname, searchParams) {
     return true;
   }
   if (pathname === '/authorize' && req.method === 'GET') {
-    const client = clients.get(searchParams.get('client_id'));
+    const client = readClient(searchParams.get('client_id'));
     const redirect = searchParams.get('redirect_uri');
     const challenge = searchParams.get('code_challenge');
     const state = searchParams.get('state');
@@ -141,8 +164,7 @@ export async function handleOAuth(req, res, pathname, searchParams) {
         error(res, 400, 'invalid_grant', 'Código o verificador PKCE inválido'); return true;
       }
       codes.delete(input.code);
-      const access_token = rand();
-      tokens.set(access_token, { user: code.user, expires: Date.now()+3600000 });
+      const access_token = sign({ kind: 'mcp-access', user: code.user, exp: Date.now() + 3600000 });
       json(res, 200, { access_token, token_type: 'Bearer', expires_in: 3600 });
     } catch { error(res, 400, 'invalid_request', 'Solicitud inválida'); }
     return true;
