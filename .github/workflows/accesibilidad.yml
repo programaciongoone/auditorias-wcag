@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       url:
-        description: 'URL pública a analizar (https://...)'
+        description: 'URL HTTPS pública a analizar'
         required: true
-        default: 'https://albafotonica.com/'
+        default: 'https://albafotonica.com/servicios/'
         type: string
 
 permissions:
@@ -14,8 +14,8 @@ permissions:
 
 jobs:
   auditar:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - name: Descargar repositorio
         uses: actions/checkout@v4
@@ -25,47 +25,32 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Validar URL pública
+      - name: Validar URL
         env:
           TARGET_URL: ${{ inputs.url }}
         run: |
           node - <<'NODE'
-          const { URL } = require('node:url');
-          const url = new URL(process.env.TARGET_URL);
-          if (url.protocol !== 'https:' || url.username || url.password || url.port || !url.hostname.includes('.') || url.hostname === 'localhost') {
-            throw new Error('Introduce una URL HTTPS pública sin credenciales ni puerto personalizado');
+          const u = new URL(process.env.TARGET_URL);
+          if (u.protocol !== 'https:' || u.username || u.password || u.port ||
+              !u.hostname.includes('.') || u.hostname === 'localhost' ||
+              /^(?:127|10|0|192\.168)\./.test(u.hostname)) {
+            throw Error('Introduce una URL HTTPS pública válida');
           }
           NODE
 
-      - name: Instalar Pa11y
-        run: npm install --global pa11y
+      - name: Instalar Pa11y y Puppeteer
+        run: npm install --no-save pa11y puppeteer
 
-      - name: Ejecutar auditoría WCAG 2.1 AA
-        id: audit
-        shell: bash
+      - name: Capturar página y ejecutar ambos motores
         env:
           TARGET_URL: ${{ inputs.url }}
-        run: |
-          set +e
-          pa11y "$TARGET_URL" --config ./pa11y.config.cjs --reporter json > informe-accesibilidad.json
-          EXIT_CODE=$?
-          set -e
-          if [ "$EXIT_CODE" -ne 0 ] && [ "$EXIT_CODE" -ne 2 ]; then
-            echo 'ERROR: Pa11y no pudo completar el análisis.' >&2
-            exit 1
-          fi
-          node - <<'NODE'
-          const fs = require('node:fs');
-          const data = JSON.parse(fs.readFileSync('informe-accesibilidad.json', 'utf8'));
-          if (!Array.isArray(data)) throw new Error('Informe JSON no válido');
-          console.log(`Incidencias encontradas: ${data.length}`);
-          NODE
+        run: node scripts/auditar.cjs
 
-      - name: Guardar informe JSON durante un día
+      - name: Guardar informes durante un día
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: informe-accesibilidad-${{ github.run_number }}
-          path: informe-accesibilidad.json
+          name: auditoria-wcag-${{ github.run_number }}
+          path: resultados/
           retention-days: 1
           if-no-files-found: warn
