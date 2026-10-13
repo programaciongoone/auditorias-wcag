@@ -1,8 +1,13 @@
 name: Auditoría de accesibilidad
+run-name: WCAG ${{ inputs.tracking_id }}
 
 on:
   workflow_dispatch:
     inputs:
+      tracking_id:
+        description: 'Identificador de seguimiento MCP'
+        required: false
+        type: string
       url:
         description: 'URL HTTPS pública a analizar'
         required: true
