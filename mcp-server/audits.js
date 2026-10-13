@@ -68,6 +68,7 @@ async function getReport(runId) {
     return JSON.parse(strFromU8(entry[1]));
   };
   const pagina = read('pagina.json');
+  const visual = read('errores-visuales.json');
   const axe = read('axe.json');
   const htmlcs = read('htmlcs.json');
   const simplify = (name, report) => ({
@@ -80,7 +81,7 @@ async function getReport(runId) {
   });
   return { report_status: 'available', page: pagina, engines: [simplify('axe', axe), simplify('htmlcs', htmlcs)],
     incomplete: !axe || !htmlcs, truncated: (axe?.issues?.length ?? 0) > 100 || (htmlcs?.issues?.length ?? 0) > 100,
-    artifact_id: artifact.id };
+    artifact_id: artifact.id, visual: visual ? { marked: visual.marked?.length ?? 0, not_visible: visual.notVisible?.length ?? 0, image: visual.image ?? null, error: visual.error ?? null } : null };
 }
 export async function waitAudit(trackingId, waitSeconds = 20) {
   const id = validTracking(trackingId);
@@ -108,4 +109,27 @@ export async function reportByRunId(runId) {
   const run = await github('/actions/runs/' + runId);
   if (run.status !== 'completed') return { run_id: runId, status: run.status };
   return { run_id: runId, status: run.status, conclusion: run.conclusion, html_url: run.html_url, ...(await getReport(runId)) };
+}
+
+export async function visualByRunId(runId) {
+  if (!Number.isSafeInteger(runId) || runId <= 0) throw Error('run_id inválido');
+  const run = await github('/actions/runs/' + runId);
+  if (run.status !== 'completed') return { run_id: runId, status: run.status };
+  const data = await github('/actions/runs/' + runId + '/artifacts');
+  const artifact = data.artifacts.find(a => !a.expired && a.name.startsWith('auditoria-wcag-'));
+  if (!artifact) return { run_id: runId, status: 'artifact_no_disponible' };
+  const response = await fetch(API + '/actions/artifacts/' + artifact.id + '/zip', {
+    headers: { Authorization: 'Bearer ' + process.env.GITHUB_TOKEN, Accept: 'application/vnd.github+json' }
+  });
+  if (!response.ok) throw Error('GitHub HTTP ' + response.status);
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  if (bytes.byteLength > 15_000_000) throw Error('Artifact demasiado grande');
+  const files = unzipSync(bytes);
+  const entry = Object.entries(files).find(([name]) => name === 'errores-visuales.json' || name.endsWith('/errores-visuales.json'));
+  if (!entry) return { run_id: runId, status: 'captura_no_disponible', message: 'Esta ejecución es anterior a la función visual.' };
+  const visual = JSON.parse(strFromU8(entry[1]));
+  return { run_id: runId, status: 'available', image: visual.image,
+    marked: visual.marked, not_visible: visual.notVisible, error: visual.error,
+    artifact_id: artifact.id, download_url: 'https://github.com/programaciongoone/auditorias-wcag/actions/runs/' + runId + '/artifacts/' + artifact.id,
+    message: 'Descarga el artifact desde GitHub: incluye captura-errores.png y errores-visuales.json.' };
 }
