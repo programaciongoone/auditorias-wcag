@@ -76,7 +76,7 @@ async function main() {
       const entries = [...unique.values()].slice(0, 80);
       for (const item of entries) {
         try {
-          const matches = await page.$(item.selector);
+          const matches = await page.$$(item.selector);
           if (!matches.length) { visual.notVisible.push({ ...item, reason: 'selector_no_encontrado' }); continue; }
           let marked = 0;
           for (const handle of matches.slice(0, 20)) {
