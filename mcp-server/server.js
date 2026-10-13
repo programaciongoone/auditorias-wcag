@@ -1,7 +1,7 @@
 import http from 'node:http';
-import { timingSafeEqual } from 'node:crypto';
+import { timingSafeEqual, createHmac } from 'node:crypto';
 import { bearerAuthorized, handleOAuth } from './oauth.js';
-import { startAudit, waitAudit, reportByRunId, visualByRunId } from './audits.js';
+import { startAudit, waitAudit, reportByRunId, visualByRunId, getScreenshot } from './audits.js';
 
 const { GITHUB_TOKEN, MCP_API_KEY, PORT = '10000' } = process.env;
 const OWNER = 'programaciongoone';
@@ -41,6 +41,15 @@ const tools = [
   { name: 'consultar_auditoria', description: 'Consulta una ejecución por su identificador numérico.', inputSchema: { type: 'object', properties: { run_id: { type: 'integer' } }, required: ['run_id'], additionalProperties: false } },
   { name: 'listar_informes', description: 'Obtiene los metadatos y URL de descarga de los artifacts de una ejecución (caducan en 1 día).', inputSchema: { type: 'object', properties: { run_id: { type: 'integer' } }, required: ['run_id'], additionalProperties: false } }
 ];
+const IMAGE_SECRET = process.env.MCP_API_KEY || process.env.OAUTH_SIGNING_SECRET || '';
+function imageSignature(id, expires) {
+  return createHmac('sha256', IMAGE_SECRET).update(id + ':' + expires).digest('hex');
+}
+function imageUrl(id) {
+  if (!IMAGE_SECRET) return null;
+  const expires = Math.floor(Date.now() / 1000) + 3600;
+  return 'https://auditorias-wcag-mcp.onrender.com/capturas/' + id + '.png?expires=' + expires + '&sig=' + imageSignature(id, expires);
+}
 const result = value => ({ content: [{ type: 'text', text: JSON.stringify(value) }] });
 function validRunId(value) {
   if (!Number.isSafeInteger(value) || value <= 0) fail('run_id inválido');
@@ -53,6 +62,7 @@ async function callTool(name, args = {}) {
   if (name === 'obtener_captura_auditoria') {
     const visual = await visualByRunId(args.run_id);
     const { image_base64, ...details } = visual;
+    if (visual.status === 'available') details.image_url = imageUrl(args.run_id);
     return { content: [
       { type: 'text', text: JSON.stringify(details) },
       ...(image_base64 ? [{ type: 'image', data: image_base64, mimeType: 'image/png' }] : [])
@@ -97,6 +107,22 @@ async function handle(message) {
 http.createServer(async (req, res) => {
   const requestUrl = new URL(req.url, 'http://localhost');
   if (await handleOAuth(req, res, requestUrl.pathname, requestUrl.searchParams)) return;
+  const match = requestUrl.pathname.match(/^\/capturas\/([1-9][0-9]*)\.png$/);
+  if (match && req.method === 'GET') {
+    const id = Number(match[1]);
+    const expires = Number(requestUrl.searchParams.get('expires'));
+    const sig = requestUrl.searchParams.get('sig') || '';
+    const expected = Number.isSafeInteger(id) && Number.isSafeInteger(expires) && IMAGE_SECRET ? imageSignature(id, expires) : '';
+    const a = Buffer.from(sig), b = Buffer.from(expected);
+    if (!expected || expires < Math.floor(Date.now() / 1000) || expires > Math.floor(Date.now() / 1000) + 3600 || a.length !== b.length || !timingSafeEqual(a, b)) {
+      res.writeHead(403); return res.end();
+    }
+    try {
+      const png = await getScreenshot(id);
+      res.writeHead(200, { 'Content-Type': 'image/png', 'Content-Length': png.length, 'Cache-Control': 'private, max-age=300', 'X-Content-Type-Options': 'nosniff' });
+      return res.end(png);
+    } catch (e) { res.writeHead(404); return res.end(); }
+  }
   if (req.url === '/health' && req.method === 'GET') { res.writeHead(200, { 'Content-Type': 'application/json' }); return res.end('{"ok":true}'); }
   if (req.url !== '/mcp') { res.writeHead(404); return res.end(); }
   if (!isAuthorized(req) && !bearerAuthorized(req)) { res.writeHead(401, { 'WWW-Authenticate': 'Bearer resource_metadata="https://auditorias-wcag-mcp.onrender.com/.well-known/oauth-protected-resource"' }); return res.end(); }
