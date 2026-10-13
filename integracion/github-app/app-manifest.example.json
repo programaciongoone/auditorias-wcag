@@ -1,0 +1,13 @@
+{
+  "name": "goOne WCAG Auditor",
+  "url": "https://github.com/programaciongoone/auditorias-wcag",
+  "hook_attributes": {
+    "active": false
+  },
+  "public": false,
+  "default_permissions": {
+    "actions": "write",
+    "metadata": "read"
+  },
+  "default_events": []
+}
