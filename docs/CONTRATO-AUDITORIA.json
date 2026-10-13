@@ -1,0 +1,26 @@
+{
+  "name": "auditoria_wcag",
+  "description": "Lanzar una auditoría de accesibilidad para una URL HTTPS pública",
+  "workflow": "accesibilidad.yml",
+  "repository": "programaciongoone/auditorias-wcag",
+  "ref": "main",
+  "inputs": {
+    "url": {
+      "type": "string",
+      "required": true,
+      "format": "uri",
+      "protocol": "https"
+    }
+  },
+  "required_permissions": {
+    "actions": "write"
+  },
+  "outputs": [
+    "pagina.json",
+    "axe.json",
+    "htmlcs.json",
+    "informe.html",
+    "captura.png"
+  ],
+  "status": "specification_only_not_connected"
+}
