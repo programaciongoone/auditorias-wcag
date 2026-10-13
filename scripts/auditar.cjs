@@ -68,7 +68,10 @@ async function main() {
       }
     }
     const visual = { url: metadata.finalUrl, generatedAt: new Date().toISOString(), marked: [], notVisible: [] };
-    // El DOM puede cambiar entre el análisis Pa11y y la captura: se documenta la correspondencia.
+    // Reabrimos la página tras Pa11y y esperamos a que carguen los componentes dinámicos.
+    await page.reload({ waitUntil: 'networkidle2', timeout: 60000 });
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    // Los elementos ocultos o ausentes quedan documentados, nunca se inventa su posición.
     try {
       const entries = [...unique.values()].slice(0, 80);
       for (const item of entries) {
