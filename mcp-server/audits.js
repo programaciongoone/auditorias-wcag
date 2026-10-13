@@ -136,3 +136,9 @@ export async function visualByRunId(runId) {
     artifact_id: artifact.id, download_url: 'https://github.com/programaciongoone/auditorias-wcag/actions/runs/' + runId + '/artifacts/' + artifact.id,
     message: 'Descarga el artifact desde GitHub: incluye captura-errores.png y errores-visuales.json.' };
 }
+
+export async function getScreenshot(runId) {
+  const report = await visualByRunId(runId);
+  if (!report.image_base64) throw Error('Captura no disponible');
+  return Buffer.from(report.image_base64, 'base64');
+}
