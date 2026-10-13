@@ -35,7 +35,7 @@ const tools = [
   { name: 'auditar_web', description: 'Inicia auditoría de una URL HTTPS y devuelve tracking_id. Después llama esperar_auditoria repetidamente hasta obtener el informe.', inputSchema: { type: 'object', properties: { url: { type: 'string' } }, required: ['url'], additionalProperties: false } },
   { name: 'esperar_auditoria', description: 'Espera hasta 25 segundos, consulta estado de una auditoría iniciada con auditar_web y devuelve informes de Pa11y y axe al terminar. Si sigue en curso, vuelve a llamarla.', inputSchema: { type: 'object', properties: { tracking_id: { type: 'string' }, wait_seconds: { type: 'integer', minimum: 0, maximum: 25, default: 20 } }, required: ['tracking_id'], additionalProperties: false } },
   { name: 'obtener_resultados', description: 'Obtiene el informe completo de una ejecución GitHub Actions por run_id, incluso tras reiniciar Render, mientras el artifact no haya caducado.', inputSchema: { type: 'object', properties: { run_id: { type: 'integer' } }, required: ['run_id'], additionalProperties: false } },
-  { name: 'obtener_captura_auditoria', description: 'Localiza la captura anotada con errores WCAG y el manifiesto de elementos visibles/no visibles de una ejecución. Devuelve enlace al artifact ZIP de GitHub.', inputSchema: { type: 'object', properties: { run_id: { type: 'integer' } }, required: ['run_id'], additionalProperties: false } },
+  { name: 'obtener_captura_auditoria', description: 'Localiza la captura anotada con errores WCAG y el manifiesto de elementos visibles/no visibles de una ejecución. Devuelve la captura anotada como imagen PNG visible en ChatGPT y un manifiesto de elementos localizados o no localizados.', inputSchema: { type: 'object', properties: { run_id: { type: 'integer' } }, required: ['run_id'], additionalProperties: false } },
   { name: 'iniciar_auditoria', description: 'Inicia una auditoría WCAG de una URL HTTPS pública de confianza mediante GitHub Actions.', inputSchema: { type: 'object', properties: { url: { type: 'string', description: 'URL HTTPS pública a auditar' } }, required: ['url'], additionalProperties: false } },
   { name: 'listar_auditorias', description: 'Lista las últimas ejecuciones de auditoría y su estado.', inputSchema: { type: 'object', properties: {}, additionalProperties: false } },
   { name: 'consultar_auditoria', description: 'Consulta una ejecución por su identificador numérico.', inputSchema: { type: 'object', properties: { run_id: { type: 'integer' } }, required: ['run_id'], additionalProperties: false } },
@@ -50,7 +50,14 @@ async function callTool(name, args = {}) {
   if (name === 'auditar_web') return result(await startAudit(args.url));
   if (name === 'esperar_auditoria') return result(await waitAudit(args.tracking_id, args.wait_seconds));
   if (name === 'obtener_resultados') return result(await reportByRunId(args.run_id));
-  if (name === 'obtener_captura_auditoria') return result(await visualByRunId(args.run_id));
+  if (name === 'obtener_captura_auditoria') {
+    const visual = await visualByRunId(args.run_id);
+    const { image_base64, ...details } = visual;
+    return { content: [
+      { type: 'text', text: JSON.stringify(details) },
+      ...(image_base64 ? [{ type: 'image', data: image_base64, mimeType: 'image/png' }] : [])
+    ] };
+  }
   if (name === 'iniciar_auditoria') {
     if (typeof args.url !== 'string' || args.url.length > 2048) fail('URL inválida');
     const u = new URL(args.url);
