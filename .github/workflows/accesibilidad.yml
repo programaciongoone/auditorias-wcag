@@ -1,3 +1,4 @@
+
 name: Auditoría de accesibilidad
 
 on:
@@ -16,6 +17,7 @@ jobs:
   auditar:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+
     steps:
       - name: Preparar Node.js
         uses: actions/setup-node@v4
@@ -27,10 +29,18 @@ jobs:
           TARGET_URL: ${{ inputs.url }}
         run: |
           node - <<'NODE'
-          const {URL} = require('node:url');
+          const { URL } = require('node:url');
           const url = new URL(process.env.TARGET_URL);
-          if (url.protocol !== 'https:' || url.username || url.password || url.port || !url.hostname.includes('.') || url.hostname === 'localhost') {
-            throw new Error('Introduce una URL HTTPS pública sin credenciales ni puerto personalizado');
+
+          if (
+            url.protocol !== 'https:' ||
+            url.username ||
+            url.password ||
+            url.port ||
+            !url.hostname.includes('.') ||
+            url.hostname === 'localhost'
+          ) {
+            throw new Error('Introduce una URL HTTPS pública válida');
           }
           NODE
 
@@ -39,16 +49,44 @@ jobs:
 
       - name: Ejecutar auditoría WCAG 2.1 AA
         id: audit
-        continue-on-error: true
+        shell: bash
         env:
           TARGET_URL: ${{ inputs.url }}
         run: |
+          set +e
+
           pa11y "$TARGET_URL" \
             --runner axe \
             --standard WCAG2AA \
+            --chrome-launch-config='{"args":["--no-sandbox","--disable-setuid-sandbox"]}' \
             --timeout 60000 \
             --wait 1500 \
-            --reporter json > informe-accesibilidad.json
+            --reporter json \
+            > informe-accesibilidad.json
+
+          EXIT_CODE=$?
+
+          if [ "$EXIT_CODE" -eq 0 ] || [ "$EXIT_CODE" -eq 2 ]; then
+            if ! node -e '
+              const fs = require("fs");
+              const data = JSON.parse(
+                fs.readFileSync("informe-accesibilidad.json", "utf8")
+              );
+              if (!Array.isArray(data)) {
+                throw new Error("Informe JSON no válido");
+              }
+              console.log("Incidencias encontradas:", data.length);
+            '; then
+              echo "ERROR: El informe JSON no es válido"
+              exit 1
+            fi
+
+            echo "Auditoría completada"
+            exit 0
+          fi
+
+          echo "ERROR: Pa11y no pudo completar el análisis"
+          exit 1
 
       - name: Guardar informe JSON durante un día
         if: always()
@@ -62,6 +100,9 @@ jobs:
       - name: Mostrar estado
         if: always()
         run: |
-          if [ '${{ steps.audit.outcome }}' != 'success' ]; then
-            echo 'La auditoría encontró incidencias o sufrió un error técnico. Revisa el JSON y los registros.'
+          if [ '${{ steps.audit.outcome }}' = 'success' ]; then
+            echo "Auditoría ejecutada correctamente."
+          else
+            echo "ERROR: La auditoría no se completó."
           fi
+
