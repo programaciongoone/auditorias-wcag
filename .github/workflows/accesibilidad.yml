@@ -1,4 +1,3 @@
-
 name: Auditoría de accesibilidad
 
 on:
@@ -17,8 +16,10 @@ jobs:
   auditar:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-
     steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+
       - name: Preparar Node.js
         uses: actions/setup-node@v4
         with:
@@ -31,16 +32,8 @@ jobs:
           node - <<'NODE'
           const { URL } = require('node:url');
           const url = new URL(process.env.TARGET_URL);
-
-          if (
-            url.protocol !== 'https:' ||
-            url.username ||
-            url.password ||
-            url.port ||
-            !url.hostname.includes('.') ||
-            url.hostname === 'localhost'
-          ) {
-            throw new Error('Introduce una URL HTTPS pública válida');
+          if (url.protocol !== 'https:' || url.username || url.password || url.port || !url.hostname.includes('.') || url.hostname === 'localhost') {
+            throw new Error('Introduce una URL HTTPS pública sin credenciales ni puerto personalizado');
           }
           NODE
 
@@ -54,39 +47,19 @@ jobs:
           TARGET_URL: ${{ inputs.url }}
         run: |
           set +e
-
-          pa11y "$TARGET_URL" \
-            --runner axe \
-            --standard WCAG2AA \
-            --chrome-launch-config='{"args":["--no-sandbox","--disable-setuid-sandbox"]}' \
-            --timeout 60000 \
-            --wait 1500 \
-            --reporter json \
-            > informe-accesibilidad.json
-
+          pa11y "$TARGET_URL" --config ./pa11y.config.cjs --reporter json > informe-accesibilidad.json
           EXIT_CODE=$?
-
-          if [ "$EXIT_CODE" -eq 0 ] || [ "$EXIT_CODE" -eq 2 ]; then
-            if ! node -e '
-              const fs = require("fs");
-              const data = JSON.parse(
-                fs.readFileSync("informe-accesibilidad.json", "utf8")
-              );
-              if (!Array.isArray(data)) {
-                throw new Error("Informe JSON no válido");
-              }
-              console.log("Incidencias encontradas:", data.length);
-            '; then
-              echo "ERROR: El informe JSON no es válido"
-              exit 1
-            fi
-
-            echo "Auditoría completada"
-            exit 0
+          set -e
+          if [ "$EXIT_CODE" -ne 0 ] && [ "$EXIT_CODE" -ne 2 ]; then
+            echo 'ERROR: Pa11y no pudo completar el análisis.' >&2
+            exit 1
           fi
-
-          echo "ERROR: Pa11y no pudo completar el análisis"
-          exit 1
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const data = JSON.parse(fs.readFileSync('informe-accesibilidad.json', 'utf8'));
+          if (!Array.isArray(data)) throw new Error('Informe JSON no válido');
+          console.log(`Incidencias encontradas: ${data.length}`);
+          NODE
 
       - name: Guardar informe JSON durante un día
         if: always()
@@ -96,13 +69,3 @@ jobs:
           path: informe-accesibilidad.json
           retention-days: 1
           if-no-files-found: warn
-
-      - name: Mostrar estado
-        if: always()
-        run: |
-          if [ '${{ steps.audit.outcome }}' = 'success' ]; then
-            echo "Auditoría ejecutada correctamente."
-          else
-            echo "ERROR: La auditoría no se completó."
-          fi
-
