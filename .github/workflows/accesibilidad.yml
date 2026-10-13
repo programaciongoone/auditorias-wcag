@@ -1,0 +1,67 @@
+name: Auditoría de accesibilidad
+
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: 'URL pública a analizar (https://...)'
+        required: true
+        default: 'https://albafotonica.com/'
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  auditar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Preparar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Validar URL pública
+        env:
+          TARGET_URL: ${{ inputs.url }}
+        run: |
+          node - <<'NODE'
+          const {URL} = require('node:url');
+          const url = new URL(process.env.TARGET_URL);
+          if (url.protocol !== 'https:' || url.username || url.password || url.port || !url.hostname.includes('.') || url.hostname === 'localhost') {
+            throw new Error('Introduce una URL HTTPS pública sin credenciales ni puerto personalizado');
+          }
+          NODE
+
+      - name: Instalar Pa11y
+        run: npm install --global pa11y
+
+      - name: Ejecutar auditoría WCAG 2.1 AA
+        id: audit
+        continue-on-error: true
+        env:
+          TARGET_URL: ${{ inputs.url }}
+        run: |
+          pa11y "$TARGET_URL" \
+            --runner axe \
+            --standard WCAG2AA \
+            --timeout 60000 \
+            --wait 1500 \
+            --reporter json > informe-accesibilidad.json
+
+      - name: Guardar informe JSON durante un día
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: informe-accesibilidad-${{ github.run_number }}
+          path: informe-accesibilidad.json
+          retention-days: 1
+          if-no-files-found: warn
+
+      - name: Mostrar estado
+        if: always()
+        run: |
+          if [ '${{ steps.audit.outcome }}' != 'success' ]; then
+            echo 'La auditoría encontró incidencias o sufrió un error técnico. Revisa el JSON y los registros.'
+          fi
