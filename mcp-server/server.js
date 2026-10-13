@@ -1,6 +1,7 @@
 import http from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
 import { bearerAuthorized, handleOAuth } from './oauth.js';
+import { startAudit, waitAudit, reportByRunId } from './audits.js';
 
 const { GITHUB_TOKEN, MCP_API_KEY, PORT = '10000' } = process.env;
 const OWNER = 'programaciongoone';
@@ -31,6 +32,9 @@ async function github(path, { method = 'GET', body } = {}) {
   return response.status === 204 ? {} : response.json();
 }
 const tools = [
+  { name: 'auditar_web', description: 'Inicia auditoría de una URL HTTPS y devuelve tracking_id. Después llama esperar_auditoria repetidamente hasta obtener el informe.', inputSchema: { type: 'object', properties: { url: { type: 'string' } }, required: ['url'], additionalProperties: false } },
+  { name: 'esperar_auditoria', description: 'Espera hasta 25 segundos, consulta estado de una auditoría iniciada con auditar_web y devuelve informes de Pa11y y axe al terminar. Si sigue en curso, vuelve a llamarla.', inputSchema: { type: 'object', properties: { tracking_id: { type: 'string' }, wait_seconds: { type: 'integer', minimum: 0, maximum: 25, default: 20 } }, required: ['tracking_id'], additionalProperties: false } },
+  { name: 'obtener_resultados', description: 'Obtiene el informe completo de una ejecución GitHub Actions por run_id, incluso tras reiniciar Render, mientras el artifact no haya caducado.', inputSchema: { type: 'object', properties: { run_id: { type: 'integer' } }, required: ['run_id'], additionalProperties: false } },
   { name: 'iniciar_auditoria', description: 'Inicia una auditoría WCAG de una URL HTTPS pública de confianza mediante GitHub Actions.', inputSchema: { type: 'object', properties: { url: { type: 'string', description: 'URL HTTPS pública a auditar' } }, required: ['url'], additionalProperties: false } },
   { name: 'listar_auditorias', description: 'Lista las últimas ejecuciones de auditoría y su estado.', inputSchema: { type: 'object', properties: {}, additionalProperties: false } },
   { name: 'consultar_auditoria', description: 'Consulta una ejecución por su identificador numérico.', inputSchema: { type: 'object', properties: { run_id: { type: 'integer' } }, required: ['run_id'], additionalProperties: false } },
@@ -42,6 +46,9 @@ function validRunId(value) {
   return value;
 }
 async function callTool(name, args = {}) {
+  if (name === 'auditar_web') return result(await startAudit(args.url));
+  if (name === 'esperar_auditoria') return result(await waitAudit(args.tracking_id, args.wait_seconds));
+  if (name === 'obtener_resultados') return result(await reportByRunId(args.run_id));
   if (name === 'iniciar_auditoria') {
     if (typeof args.url !== 'string' || args.url.length > 2048) fail('URL inválida');
     const u = new URL(args.url);
