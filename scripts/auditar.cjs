@@ -3,6 +3,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const pa11y = require('pa11y');
 const puppeteer = require('puppeteer');
+const axeSource = require('axe-core').source;
+const { inspect } = require('./dom-checks.cjs');
 
 const target = process.env.TARGET_URL;
 const out = path.resolve('resultados');
@@ -58,6 +60,26 @@ async function main() {
       }
     }
 
+    try {
+      await page.evaluate(axeSource);
+      const expanded = await page.evaluate(async () => window.axe.run(document, {
+        runOnly: { type: 'tag', values: ['wcag2a','wcag2aa','wcag21a','wcag21aa','best-practice'] }
+      }));
+      const issues = [...expanded.violations.map(v=>[v,'error']), ...expanded.incomplete.map(v=>[v,'warning'])].flatMap(([v,type]) => v.nodes.map(n => ({
+        type: v.tags.includes('best-practice') && !v.tags.some(t=>/^wcag(?:2|21)[a]+$/.test(t)) ? 'warning' : type,
+        code:v.id, message:v.help, selector:n.target.map(t=>Array.isArray(t)?t.join(' > '):t).join(' > '), context:n.html,
+        tags:v.tags, reviewRequired:type==='warning'
+      })));
+      reports['axe-expanded'] = {issues};
+      fs.writeFileSync(path.join(out,'axe-expanded.json'),JSON.stringify(reports['axe-expanded'],null,2));
+      fs.writeFileSync(path.join(out,'axe-expanded-raw.json'),JSON.stringify(expanded,null,2));
+      reports.dom = await inspect(page);
+      fs.writeFileSync(path.join(out,'dom.json'),JSON.stringify(reports.dom,null,2));
+    } catch(error) {
+      reports.supplemental = {error:error.message};
+      fs.writeFileSync(path.join(out,'supplemental-error.txt'),error.stack||error.message);
+    }
+
     // Visualización basada en los selectores reales de Pa11y; sin posiciones inventadas.
     const unique = new Map();
     for (const [engine, report] of Object.entries(reports)) {
@@ -73,7 +95,7 @@ async function main() {
     await new Promise(resolve => setTimeout(resolve, 2000));
     // Los elementos ocultos o ausentes quedan documentados, nunca se inventa su posición.
     try {
-      const entries = [...unique.values()].slice(0, 80);
+      const entries = [...unique.values()].sort((a,b)=>Number(/contrast|1_4_3/.test(a.code))-Number(/contrast|1_4_3/.test(b.code))).slice(0, 80);
       for (const item of entries) {
         try {
           const matches = await page.$$(item.selector);
@@ -135,7 +157,7 @@ async function main() {
       '</p><p>Fecha: ' + escapeHtml(metadata.timestamp) +
       '</p><p>axe: ' + escapeHtml(reports.axe.issues?.length ?? 'ERROR') +
       ' · HTML_CodeSniffer: ' + escapeHtml(reports.htmlcs.issues?.length ?? 'ERROR') +
-      '</p><p>Resultados automáticos: no acreditan por sí solos conformidad WCAG.</p>' +
+      ' · axe ampliado: ' + escapeHtml(reports['axe-expanded']?.issues?.length ?? 'ERROR') + ' · DOM: ' + escapeHtml(reports.dom?.issues?.length ?? 'ERROR') + '</p><p>Los motores pueden duplicar hallazgos. Las alertas requieren revisión manual.</p>' +
       (failures.length ? '<p>Fallos técnicos: ' + escapeHtml(failures.map(([n,r]) => n + ': ' + r.error).join('; ')) + '</p>' : '') +
       '<table><thead><tr><th>Motor</th><th>Tipo</th><th>Regla</th><th>Descripción</th><th>Selector</th><th>HTML</th></tr></thead><tbody>' +
       rows.join('') + '</tbody></table></html>';
