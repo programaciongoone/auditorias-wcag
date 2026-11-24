@@ -33,8 +33,8 @@ async function github(path, { method = 'GET', body } = {}) {
 }
 const tools = [
   { name: 'auditar_web', description: 'Inicia auditoría de una URL HTTPS y devuelve tracking_id. Después llama esperar_auditoria repetidamente hasta obtener el informe.', inputSchema: { type: 'object', properties: { url: { type: 'string' } }, required: ['url'], additionalProperties: false } },
-  { name: 'esperar_auditoria', description: 'Espera hasta 25 segundos, consulta estado de una auditoría iniciada con auditar_web y devuelve informes de Pa11y y axe al terminar. Si sigue en curso, vuelve a llamarla.', inputSchema: { type: 'object', properties: { tracking_id: { type: 'string' }, wait_seconds: { type: 'integer', minimum: 0, maximum: 25, default: 20 } }, required: ['tracking_id'], additionalProperties: false } },
-  { name: 'obtener_resultados', description: 'Obtiene el informe completo de una ejecución GitHub Actions por run_id, incluso tras reiniciar Render, mientras el artifact no haya caducado.', inputSchema: { type: 'object', properties: { run_id: { type: 'integer' } }, required: ['run_id'], additionalProperties: false } },
+  { name: 'esperar_auditoria', description: 'Espera hasta 25 segundos, consulta estado de una auditoría iniciada con auditar_web y devuelve informes de Pa11y, axe, axe ampliado y comprobaciones DOM al terminar. Si sigue en curso, vuelve a llamarla.', inputSchema: { type: 'object', properties: { tracking_id: { type: 'string' }, wait_seconds: { type: 'integer', minimum: 0, maximum: 25, default: 20 } }, required: ['tracking_id'], additionalProperties: false } },
+  { name: 'obtener_resultados', description: 'Obtiene los informes y totales por regla de una ejecución GitHub Actions por run_id, incluso tras reiniciar Render, mientras el artifact no haya caducado.', inputSchema: { type: 'object', properties: { run_id: { type: 'integer' } }, required: ['run_id'], additionalProperties: false } },
   { name: 'obtener_captura_auditoria', description: 'Localiza la captura anotada con errores WCAG y el manifiesto de elementos visibles/no visibles de una ejecución. Devuelve la captura anotada como imagen PNG visible en ChatGPT y un manifiesto de elementos localizados o no localizados.', inputSchema: { type: 'object', properties: { run_id: { type: 'integer' } }, required: ['run_id'], additionalProperties: false } },
   { name: 'iniciar_auditoria', description: 'Inicia una auditoría WCAG de una URL HTTPS pública de confianza mediante GitHub Actions.', inputSchema: { type: 'object', properties: { url: { type: 'string', description: 'URL HTTPS pública a auditar' } }, required: ['url'], additionalProperties: false } },
   { name: 'listar_auditorias', description: 'Lista las últimas ejecuciones de auditoría y su estado.', inputSchema: { type: 'object', properties: {}, additionalProperties: false } },
@@ -95,7 +95,7 @@ async function handle(message) {
   const { id, method, params = {} } = message;
   if (method === 'notifications/initialized') return null;
   if (id === undefined) return null;
-  if (method === 'initialize') return rpc(id, { protocolVersion: VERSION, capabilities: { tools: { listChanged: false } }, serverInfo: { name: 'auditorias-wcag', version: '0.1.0' } });
+  if (method === 'initialize') return rpc(id, { protocolVersion: VERSION, capabilities: { tools: { listChanged: false } }, serverInfo: { name: 'auditorias-wcag', version: '0.2.0' } });
   if (method === 'ping') return rpc(id, {});
   if (method === 'tools/list') return rpc(id, { tools });
   if (method === 'tools/call') {
