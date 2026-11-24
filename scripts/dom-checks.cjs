@@ -21,9 +21,9 @@ async function inspect(page) {
     for(const a of document.querySelectorAll('a[href]')){
       if(!visible(a))continue;
       const imgs=[...a.querySelectorAll('img')].filter(visible);
-      if(imgs.length && !name(a)) add(a,'linked-image-no-name','Imagen enlazada sin nombre accesible aparente; revisar ALT y nombre del enlace.','error');
+      if(imgs.length && !name(a)) add(a,'linked-image-no-name','Imagen enlazada sin nombre accesible aparente; revisar ALT y nombre del enlace.','warning');
       else if(!name(a)) add(a,'empty-link-review','Enlace sin nombre aparente; comprobar nombre accesible.','warning');
-      for(const img of imgs) if(!clean(img.getAttribute('alt')) && !name(a)) add(img,'linked-image-alt-review','Imagen enlazada sin ALT significativo; comprobar contexto.');
+      for(const img of imgs) if(!clean(img.getAttribute('alt'))) add(img,'linked-image-alt-review','Imagen enlazada sin ALT significativo; comprobar contexto.');
       const next=a.nextElementSibling;
       if(next?.matches('a[href]') && visible(next) && next.href===a.href) add(next,'redundant-link','Enlace adyacente con idéntico destino; revisar redundancia.');
     }
