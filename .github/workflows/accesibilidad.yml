@@ -39,9 +39,9 @@ jobs:
           NODE
 
       - name: Instalar Pa11y y Puppeteer
-        run: npm install --no-save pa11y puppeteer
+        run: npm install --no-save pa11y puppeteer axe-core
 
-      - name: Capturar página y ejecutar ambos motores
+      - name: Capturar página y ejecutar motores y comprobaciones complementarias
         env:
           TARGET_URL: ${{ inputs.url }}
         run: node scripts/auditar.cjs
