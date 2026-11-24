@@ -71,16 +71,30 @@ async function getReport(runId) {
   const visual = read('errores-visuales.json');
   const axe = read('axe.json');
   const htmlcs = read('htmlcs.json');
-  const simplify = (name, report) => ({
-    engine: name,
-    count: report?.issues?.length ?? null,
-    issues: (report?.issues ?? []).slice(0, 100).map(i => ({
-      type: i.type, code: i.code, message: i.message, selector: i.selector,
-      context: String(i.context ?? '').slice(0, 800)
-    }))
-  });
-  return { report_status: 'available', page: pagina, engines: [simplify('axe', axe), simplify('htmlcs', htmlcs)],
-    incomplete: !axe || !htmlcs, truncated: (axe?.issues?.length ?? 0) > 100 || (htmlcs?.issues?.length ?? 0) > 100,
+  const expanded = read('axe-expanded.json');
+  const dom = read('dom.json');
+  const reports = [['axe', axe], ['htmlcs', htmlcs], ['axe-expanded', expanded], ['dom', dom]];
+  const simplify = (name, report) => {
+    const all = report?.issues ?? [];
+    const counts = {};
+    const byRule = {};
+    for (const i of all) {
+      counts[i.type] = (counts[i.type] || 0) + 1;
+      byRule[i.code] = (byRule[i.code] || 0) + 1;
+    }
+    // Prioritize structural findings so contrast does not exhaust the response.
+    const ordered = [...all].sort((a,b) => Number(/contrast|1_4_3/.test(a.code)) - Number(/contrast|1_4_3/.test(b.code)));
+    return { engine: name, count: report ? all.length : null, counts, byRule,
+      issues: ordered.slice(0, 100).map(i => ({
+        type: i.type, code: i.code, message: i.message, selector: i.selector,
+        context: String(i.context ?? '').slice(0, 800),
+        ...(i.tags ? {tags:i.tags} : {}),
+        ...(i.reviewRequired !== undefined ? {reviewRequired:i.reviewRequired} : {})
+      })) };
+  };
+  return { report_status: 'available', page: pagina, engines: reports.map(([n,r])=>simplify(n,r)),
+    incomplete: reports.some(([,r])=>!r), missing_engines: reports.filter(([,r])=>!r).map(([n])=>n),
+    truncated: reports.some(([,r])=>(r?.issues?.length ?? 0)>100),
     artifact_id: artifact.id, visual: visual ? { marked: visual.marked?.length ?? 0, not_visible: visual.notVisible?.length ?? 0, image: visual.image ?? null, error: visual.error ?? null } : null };
 }
 export async function waitAudit(trackingId, waitSeconds = 20) {
