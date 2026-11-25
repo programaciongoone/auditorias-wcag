@@ -3,8 +3,13 @@
 async function inspect(page) {
   return page.evaluate(() => {
     const issues = [];
-    const visible = el => !!el.getClientRects().length && getComputedStyle(el).visibility === 'visible' && !el.closest('[aria-hidden="true"],[inert]');
-    const clean = s => (s || '').replace(/\s+/g,' ').trim();
+    const visible = el => {
+      if (el.closest('[hidden],[inert]')) return false;
+      for(let n=el;n;n=n.parentElement) if(getComputedStyle(n).display==='none') return false;
+      return getComputedStyle(el).visibility==='visible';
+    };
+    const rendered = el => visible(el) && !!el.getClientRects().length;
+    const clean = s => (s || '').replace(/[\s\u200B-\u200D\uFEFF]+/g,' ').trim();
     const name = el => clean((el.getAttribute('aria-labelledby') || '').split(/\s+/).map(id => document.getElementById(id)?.textContent || '').join(' ')) || clean(el.getAttribute('aria-label')) || clean(el.textContent) || clean([...el.querySelectorAll('img[alt]')].map(i=>i.alt).join(' ')) || clean(el.getAttribute('title'));
     function selector(el) {
       const parts=[];
@@ -16,16 +21,24 @@ async function inspect(page) {
       return parts.join(' > ');
     }
     function add(el,code,message,type='warning'){
-      issues.push({type,code,message,selector:selector(el),context:el.outerHTML.slice(0,1000)});
+      issues.push({type,code,message,selector:selector(el),context:el.outerHTML.slice(0,1000),reviewRequired:true});
     }
-    for(const a of document.querySelectorAll('a[href]')){
+    const links = [...document.querySelectorAll('a[href]')].filter(visible);
+    for(const [index,a] of links.entries()){
       if(!visible(a))continue;
       const imgs=[...a.querySelectorAll('img')].filter(visible);
       if(imgs.length && !name(a)) add(a,'linked-image-no-name','Imagen enlazada sin nombre accesible aparente; revisar ALT y nombre del enlace.','warning');
       else if(!name(a)) add(a,'empty-link-review','Enlace sin nombre aparente; comprobar nombre accesible.','warning');
       for(const img of imgs) if(!clean(img.getAttribute('alt'))) add(img,'linked-image-alt-review','Imagen enlazada sin ALT significativo; comprobar contexto.');
-      const next=a.nextElementSibling;
-      if(next?.matches('a[href]') && visible(next) && next.href===a.href) add(next,'redundant-link','Enlace adyacente con idéntico destino; revisar redundancia.');
+      const next=links[index+1];
+      if(next && a.href===next.href && !a.href.endsWith('#')){
+        const range=document.createRange();
+        range.setStartAfter(a); range.setEndBefore(next);
+        if(!clean(range.toString())) add(next,'redundant-link','Enlaces consecutivos con idéntico destino; revisar redundancia.');
+      }
+      if(!clean(a.textContent) && !imgs.some(i=>clean(i.alt)) && !a.querySelector('svg title') && !a.getAttribute('aria-label') && !a.getAttribute('aria-labelledby') && !a.getAttribute('title') && name(a)==='') {
+        if(!imgs.length && !issues.some(i=>i.code==='empty-link-review' && i.selector===selector(a))) add(a,'empty-link-review','Enlace vacío; comprobar nombre accesible.');
+      }
     }
     let previous=0;
     for(const h of document.querySelectorAll('h1,h2,h3,h4,h5,h6,[role="heading"]')){
@@ -35,9 +48,11 @@ async function inspect(page) {
       if(level>=1 && level<=6){if(level>previous+1)add(h,'heading-order','Salto de nivel '+previous+' a '+level+'; revisar jerarquía.');previous=level;}
     }
     for(const el of document.querySelectorAll('p,div,span,strong,b')){
-      if(!visible(el)||el.closest('h1,h2,h3,h4,h5,h6,[role="heading"],a,button,nav')||el.children.length||!clean(el.textContent)||clean(el.textContent).length>100)continue;
+      if(!rendered(el)||el.closest('h1,h2,h3,h4,h5,h6,[role="heading"],a,button,nav')||!clean(el.textContent)||clean(el.textContent).length>100||el.querySelector('p,div,h1,h2,h3,h4,h5,h6,ul,ol,table'))continue;
       const s=getComputedStyle(el);
-      if(parseFloat(s.fontSize)>=20 && (parseInt(s.fontWeight)>=600 || s.fontWeight==='bold'))add(el,'possible-heading','Texto destacado que podría ser un encabezado; revisión manual.');
+      const block = ['block','flex','grid','list-item'].includes(s.display);
+      const emphasized = parseInt(s.fontWeight)>=600 || s.fontWeight==='bold' || !!el.querySelector('strong,b');
+      if(block && ((parseFloat(s.fontSize)>=18 && emphasized) || parseFloat(s.fontSize)>=24))add(el,'possible-heading','Texto destacado que podría ser un encabezado; revisión manual.');
     }
     for(const meta of document.querySelectorAll('meta[name="viewport" i]')){
       const c=meta.content||'';
